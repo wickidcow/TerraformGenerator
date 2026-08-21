@@ -1,12 +1,12 @@
-package org.terraform.coregen.folia;
+package org.terraform.coregen.scheduler;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;
 import org.terraform.main.TerraformGeneratorPlugin;
 
-public class SpigotScheduler implements AbstractScheduler{
-    //Dumbass name tbh
+public class PaperScheduler implements AbstractScheduler {
+
     @Override
     public void execAsyncRegion(@NotNull World world, int chunkX, int chunkZ, @NotNull Runnable run) {
         Bukkit.getScheduler().runTask(TerraformGeneratorPlugin.get(), run);

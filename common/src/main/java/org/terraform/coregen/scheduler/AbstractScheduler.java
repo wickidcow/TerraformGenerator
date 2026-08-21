@@ -1,4 +1,4 @@
-package org.terraform.coregen.folia;
+package org.terraform.coregen.scheduler;
 
 import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;

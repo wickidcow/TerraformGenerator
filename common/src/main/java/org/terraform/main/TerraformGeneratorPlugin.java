@@ -18,7 +18,6 @@ import org.terraform.coregen.TerraformPopulator;
 import org.terraform.coregen.bukkit.TerraformGenerator;
 import org.terraform.coregen.folia.AbstractScheduler;
 import org.terraform.coregen.folia.SpigotScheduler;
-import org.terraform.coregen.folia.FoliaScheduler;
 import org.terraform.coregen.populatordata.PopulatorDataPostGen;
 import org.terraform.data.SimpleChunkLocation;
 import org.terraform.data.TerraformWorld;
@@ -82,7 +81,7 @@ public class TerraformGeneratorPlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         super.onEnable();
         instance = this;
-        taskScheduler = isPaperOrFolia() ? new FoliaScheduler() : new SpigotScheduler();
+        taskScheduler = new SpigotScheduler();
 
         try {
             TConfig.init(new File(getDataFolder(), "config.yml"));
@@ -254,14 +253,5 @@ public class TerraformGeneratorPlugin extends JavaPlugin implements Listener {
     public LanguageManager getLang() {
         // TODO Auto-generated method stub
         return lang;
-    }
-
-    private static boolean isPaperOrFolia() {
-        try {
-            Class.forName("io.papermc.paper.world.MoonPhase");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
     }
 }

@@ -16,9 +16,9 @@ import org.terraform.coregen.HeightMap;
 import org.terraform.coregen.NMSInjectorAbstract;
 import org.terraform.coregen.TerraformPopulator;
 import org.terraform.coregen.bukkit.TerraformGenerator;
-import org.terraform.coregen.folia.AbstractScheduler;
-import org.terraform.coregen.folia.SpigotScheduler;
 import org.terraform.coregen.populatordata.PopulatorDataPostGen;
+import org.terraform.coregen.scheduler.AbstractScheduler;
+import org.terraform.coregen.scheduler.PaperScheduler;
 import org.terraform.data.SimpleChunkLocation;
 import org.terraform.data.TerraformWorld;
 import org.terraform.main.config.TConfig;
@@ -81,7 +81,7 @@ public class TerraformGeneratorPlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         super.onEnable();
         instance = this;
-        taskScheduler = new SpigotScheduler();
+        taskScheduler = new PaperScheduler();
 
         try {
             TConfig.init(new File(getDataFolder(), "config.yml"));

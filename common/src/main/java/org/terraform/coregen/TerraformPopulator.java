@@ -227,9 +227,14 @@ public class TerraformPopulator extends BlockPopulator {
         if(canDecorate[1])
             amethystGeodePopulator.populate(tw, random, data);
 
-        // Small Populators run per block.
-        for (int rawX = data.getChunkX() * 16; rawX <= data.getChunkX() * 16 + 16; rawX++) {
-            for (int rawZ = data.getChunkZ() * 16; rawZ <= data.getChunkZ() * 16 + 16; rawZ++) {
+        // Small populators run once for each of the chunk's 16x16 block columns.
+        // The old inclusive upper bound processed a 17x17 area, duplicating a
+        // border row/column in neighbouring chunks and creating unnecessary
+        // LimitedRegion patch work during exploration.
+        int minBlockX = data.getChunkX() << 4;
+        int minBlockZ = data.getChunkZ() << 4;
+        for (int rawX = minBlockX; rawX < minBlockX + 16; rawX++) {
+            for (int rawZ = minBlockZ; rawZ < minBlockZ + 16; rawZ++) {
                 int surfaceY = GenUtils.getTransformedHeight(data.getTerraformWorld(), rawX, rawZ);
                 BiomeBank bank = tw.getBiomeBank(rawX, surfaceY, rawZ);
                 banks.add(bank);

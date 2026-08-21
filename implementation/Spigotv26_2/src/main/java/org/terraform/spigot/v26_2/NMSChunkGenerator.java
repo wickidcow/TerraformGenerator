@@ -3,7 +3,6 @@ package org.terraform.spigot.v26_2;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.MapCodec;
 import it.unimi.dsi.fastutil.ints.IntArraySet;
-import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.*;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
@@ -12,7 +11,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Util;
 import net.minecraft.world.level.*;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.biome.*;
@@ -134,10 +132,9 @@ public class NMSChunkGenerator extends ChunkGenerator {
     @Override // createBiomes
     public @NotNull CompletableFuture<ChunkAccess> createBiomes(RandomState randomstate, Blender blender, StructureManager structuremanager, @NotNull ChunkAccess ChunkAccess)
     {
-        return CompletableFuture.supplyAsync(() -> {
-            return ChunkAccess; // Don't do any calculations here, biomes are set in applyCarvers
-        }, Util.backgroundExecutor().forName("init_biomes"));
-        //Util.backgroundExecutor().
+        // Biomes are populated in applyCarvers. Avoid scheduling a no-op task for
+        // every generated chunk while players are moving through new terrain.
+        return CompletableFuture.completedFuture(ChunkAccess);
     }
 
     @Override // findNearestMapStructure
@@ -193,10 +190,55 @@ public class NMSChunkGenerator extends ChunkGenerator {
 
     @Override // applyBiomeDecoration
     public void applyBiomeDecoration(WorldGenLevel worldGenLevel, ChunkAccess ChunkAccess, StructureManager structuremanager) {
-        delegate.applyBiomeDecoration(worldGenLevel, ChunkAccess, structuremanager);
+        // Paper iterates CraftWorld's live ArrayList of populators from async
+        // chunk workers. If another plugin changes that list at the same time,
+        // the iterator can throw ConcurrentModificationException and Paper
+        // treats it as an unrecoverable chunk-system failure. Snapshot the list
+        // without using its fail-fast iterator and run the same LimitedRegion
+        // population path against the stable copy.
+        applyBukkitPopulators(worldGenLevel, ChunkAccess);
 
         // This triggers structure gen. Needed for VanillaStructurePopulator
         addVanillaDecorations(worldGenLevel,ChunkAccess, structuremanager);
+    }
+
+    private void applyBukkitPopulators(@NotNull WorldGenLevel worldGenLevel,
+                                       @NotNull ChunkAccess chunkAccess)
+    {
+        org.bukkit.World world = worldGenLevel.getMinecraftWorld().getWorld();
+        List<org.bukkit.generator.BlockPopulator> populators = new ArrayList<>(world.getPopulators());
+        if (populators.isEmpty()) {
+            return;
+        }
+
+        org.bukkit.craftbukkit.generator.CraftLimitedRegion limitedRegion =
+                new org.bukkit.craftbukkit.generator.CraftLimitedRegion(worldGenLevel, chunkAccess.getPos());
+        int chunkX = chunkAccess.getPos().x();
+        int chunkZ = chunkAccess.getPos().z();
+
+        try {
+            for (org.bukkit.generator.BlockPopulator populator : populators) {
+                // A concurrent remove can theoretically leave a stale null in a
+                // snapshot. Ignore it rather than turning it into a chunk crash.
+                if (populator == null) {
+                    continue;
+                }
+
+                WorldgenRandom seededRandom = new WorldgenRandom(new LegacyRandomSource(worldGenLevel.getSeed()));
+                seededRandom.setDecorationSeed(worldGenLevel.getSeed(), chunkX, chunkZ);
+                populator.populate(
+                        world,
+                        new org.bukkit.craftbukkit.util.RandomSourceWrapper.RandomWrapper(seededRandom),
+                        chunkX,
+                        chunkZ,
+                        limitedRegion
+                );
+            }
+            limitedRegion.saveEntities();
+        }
+        finally {
+            limitedRegion.breakLink();
+        }
     }
 
     //This has to be overridden because calling the normal one will make vanilla
@@ -215,22 +257,9 @@ public class NMSChunkGenerator extends ChunkGenerator {
             List<FeatureSorter.StepFeatureData> list = (List<FeatureSorter.StepFeatureData>)this.featuresPerStep.get();
             WorldgenRandom seededrandom = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
             long i = seededrandom.setDecorationSeed(worldGenLevel.getSeed(), BlockPos.getX(), BlockPos.getZ());
-            Set<Holder<Biome>> set = new ObjectArraySet<Holder<Biome>>();
-            ChunkPos.rangeClosed(sectionPos.chunk(), 1).forEach((ChunkPos1) -> {
-                ChunkAccess ichunkaccess1 = worldGenLevel.getChunk(ChunkPos1.x(), ChunkPos1.z());
-
-                for (LevelChunkSection chunksection : ichunkaccess1.getSections()) {
-                    PalettedContainerRO<Holder<Biome>> palettedcontainerro = chunksection.getBiomes();
-
-                    Objects.requireNonNull(set);
-                    palettedcontainerro.getAll(set::add);
-                }
-            });
-            set.retainAll(this.biomeSource.possibleBiomes());
             int j = list.size();
 
             try {
-                Registry iregistry1 = worldGenLevel.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE);
                 int k = Math.max(GenerationStep.Decoration.values().length, j);
 
                 for(int l = 0; l < k; ++l) {

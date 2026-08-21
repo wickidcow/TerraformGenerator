@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ master ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,3 +37,33 @@ jobs:
 
       - name: Build with Gradle
         run: ./gradlew deploy
+
+      - name: Locate raw JAR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        id: jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$(find buildProj/build/libs -maxdepth 1 -type f -name 'TerraformGenerator-*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -print -quit)"
+          if [ -z "$JAR" ]; then
+            echo "No TerraformGenerator JAR found in buildProj/build/libs" >&2
+            exit 1
+          fi
+          echo "path=$JAR" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$JAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish raw JAR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JAR_PATH: ${{ steps.jar.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete latest-build --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create latest-build "$JAR_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Latest Build" \
+            --notes "Raw TerraformGenerator JAR from the latest successful master build. No ZIP extraction required." \
+            --prerelease

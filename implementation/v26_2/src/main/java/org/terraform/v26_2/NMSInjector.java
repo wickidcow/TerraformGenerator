@@ -71,7 +71,7 @@ public class NMSInjector extends NMSInjectorAbstract {
             // WorldChunkManager worldchunkmanager1,
             // StructureSettings structuresettings,
             // long i
-            NMSChunkGenerator bpg = new NMSChunkGenerator(world.getName(), (int) world.getSeed(), delegate);
+            NMSChunkGenerator bpg = new NMSChunkGenerator(world.getName(), world.getSeed(), delegate);
 
             // Inject TerraformGenerator NMS chunk generator into ChunkMap AND worldgencontext
             ChunkMap pcm = ws.getChunkSource().chunkMap; // getChunkProvider().ChunkMap
@@ -124,8 +124,7 @@ public class NMSInjector extends NMSInjectorAbstract {
                     tw,
                     ws,
                     gas.getChunk(data.getChunkX(), data.getChunkZ()),
-                    data.getChunkX(),
-                    data.getChunkZ()
+                    data.getChunkX(), data.getChunkZ()
             );
         }
         if (data instanceof PopulatorDataPostGen gdata) {

@@ -2,17 +2,14 @@ package org.terraform.v26_2;
 
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.MapCodec;
-import it.unimi.dsi.fastutil.ints.IntArraySet;
-import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.*;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Util;
+import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.*;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.biome.*;
@@ -20,11 +17,9 @@ import net.minecraft.world.level.chunk.*;
 import net.minecraft.world.level.levelgen.*;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.feature.FeatureCountTracker;
-import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureSet;
-import net.minecraft.world.level.levelgen.placement.PlacedFeature;
-import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
 import net.minecraft.world.level.levelgen.structure.structures.BuriedTreasureStructure;
 import net.minecraft.world.level.levelgen.structure.structures.JigsawStructure;
 import net.minecraft.world.level.levelgen.structure.structures.OceanMonumentStructure;
@@ -64,45 +59,34 @@ public class NMSChunkGenerator extends ChunkGenerator {
     private final @NotNull TerraformWorldProviderBiome twBS;
     private final @NotNull TerraformMethodHandler tryGenerateStructure;
     private final ArrayList<Identifier> possibleStructureSets = new ArrayList<>();
-
     private final @NotNull TerraformMethodHandler getWriteableArea;
-    private final @NotNull Supplier featuresPerStep;
+    private final @NotNull Supplier<?> featuresPerStep;
 
     public NMSChunkGenerator(String worldName, long seed, @NotNull ChunkGenerator delegate)
-            throws NoSuchMethodException, SecurityException, NoSuchFieldException, IllegalAccessException
-    {
-        super(
-                delegate.getBiomeSource(), // BiomeSource d() is getBiomeSource()
-                delegate.generationSettingsGetter); // Idk what generationSettingsGetter is
+            throws NoSuchMethodException, SecurityException, NoSuchFieldException, IllegalAccessException {
+        super(delegate.getBiomeSource(), delegate.generationSettingsGetter);
         tw = TerraformWorld.get(worldName, seed);
         this.delegate = delegate;
 
-        // Set the long term biome handler to this one. The normal behaving one
-        // is initiated inside the cave carver
         mapRendererBS = new MapRenderWorldProviderBiome(tw, delegate.getBiomeSource());
-        twBS = new TerraformWorldProviderBiome(TerraformWorld.get(worldName, seed), delegate.getBiomeSource());
+        twBS = new TerraformWorldProviderBiome(tw, delegate.getBiomeSource());
 
-        //This is needed for addVanillaFeatures (c)
-
-        featuresPerStep = (Supplier) new TerraformFieldHandler(ChunkGenerator.class, "featuresPerStep", "c")
+        featuresPerStep = (Supplier<?>) new TerraformFieldHandler(ChunkGenerator.class, "featuresPerStep", "c")
                 .field.get(delegate);
+        getWriteableArea = new TerraformMethodHandler(
+                ChunkGenerator.class,
+                new String[]{"getWritableArea", "a"},
+                ChunkAccess.class
+        );
 
-        //a
-        getWriteableArea = new TerraformMethodHandler(ChunkGenerator.class,
-                new String[]{"getWritableArea", "a"}, ChunkAccess.class);
-
-        // This is tryGenerateStructure
-        // Register VanillaStructurePopulators to allow Minecraft to properly
-        // handle them
-        for(StructurePopulator pop : StructureRegistry.getAllPopulators())
-        {
-            if(pop instanceof VanillaStructurePopulator vsp)
-            {
-                possibleStructureSets.add(Identifier.parse(vsp.structureRegistryKey)); // Identifier.create
+        for (StructurePopulator pop : StructureRegistry.getAllPopulators()) {
+            if (pop instanceof VanillaStructurePopulator vsp) {
+                possibleStructureSets.add(Identifier.parse(vsp.structureRegistryKey));
             }
         }
-        //a
-        tryGenerateStructure = new TerraformMethodHandler(ChunkGenerator.class,
+
+        tryGenerateStructure = new TerraformMethodHandler(
+                ChunkGenerator.class,
                 new String[]{"tryGenerateStructure", "a"},
                 StructureSet.StructureSelectionEntry.class,
                 StructureManager.class,
@@ -113,11 +97,11 @@ public class NMSChunkGenerator extends ChunkGenerator {
                 ChunkAccess.class,
                 ChunkPos.class,
                 SectionPos.class,
-                ResourceKey.class);
+                ResourceKey.class
+        );
     }
 
-
-    @Override // getBiomeSource
+    @Override
     public @NotNull BiomeSource getBiomeSource() {
         return mapRendererBS;
     }
@@ -131,350 +115,393 @@ public class NMSChunkGenerator extends ChunkGenerator {
         return MapCodec.unit(null);
     }
 
-    @Override // createBiomes
-    public @NotNull CompletableFuture<ChunkAccess> createBiomes(RandomState randomstate, Blender blender, StructureManager structuremanager, @NotNull ChunkAccess ChunkAccess)
-    {
-        return CompletableFuture.supplyAsync(() -> {
-            return ChunkAccess; // Don't do any calculations here, biomes are set in applyCarvers
-        }, Util.backgroundExecutor().forName("init_biomes"));
-        //Util.backgroundExecutor().
+    @Override
+    public @NotNull CompletableFuture<ChunkAccess> createBiomes(
+            RandomState randomState,
+            Blender blender,
+            StructureManager structureManager,
+            @NotNull ChunkAccess chunkAccess) {
+        // Biomes are populated in applyCarvers. Avoid scheduling a no-op task for
+        // every generated chunk while players move through new terrain.
+        return CompletableFuture.completedFuture(chunkAccess);
     }
 
-    @Override // findNearestMapStructure
-    public Pair<BlockPos, Holder<Structure>> findNearestMapStructure(ServerLevel ServerLevel, @NotNull HolderSet<Structure> holderset,
-                                                    @NotNull BlockPos BlockPos, int i, boolean flag) {
+    @Override
+    public Pair<BlockPos, Holder<Structure>> findNearestMapStructure(
+            ServerLevel serverLevel,
+            @NotNull HolderSet<Structure> holderSet,
+            @NotNull BlockPos blockPos,
+            int radius,
+            boolean skipKnownStructures) {
+        int pX = blockPos.getX();
+        int pZ = blockPos.getZ();
 
-        int pX = BlockPos.getX(); // getX
-        int pZ = BlockPos.getZ(); // getZ
-
-        for(Holder<Structure> holder:holderset) {
+        for (Holder<Structure> holder : holderSet) {
             Structure feature = holder.value();
-            // StructureGenerator<?> structuregenerator = feature.;
             TerraformGeneratorPlugin.logger.info("Vanilla locate for " + feature.getClass().getName() + " invoked.");
 
-            if (holder.value().getClass() == StrongholdStructure.class) { // stronghold
+            if (holder.value().getClass() == StrongholdStructure.class) {
                 int[] coords = new StrongholdPopulator().getNearestFeature(tw, pX, pZ);
                 return new Pair<>(new BlockPos(coords[0], 20, coords[1]), holder);
             }
-            else if(!TConfig.c.DEVSTUFF_VANILLA_LOCATE_DISABLE)
-            {
-                if (holder.value().getClass() == OceanMonumentStructure.class) { // Monument
-
-                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(tw, pX, pZ, new MonumentPopulator(), TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS);
-
-                    return new Pair<>
-                            (new BlockPos(coords[0], 50, coords[1]), holder);
-                } else if (holder.value().getClass() == WoodlandMansionStructure.class) { // Mansion
-
-                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(tw, pX, pZ, new MansionPopulator(), TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS);
-
-                    return new Pair<>
-                            (new BlockPos(coords[0], 50, coords[1]), holder);
-                } else if (holder.value() instanceof JigsawStructure
-                           //bm is structure
-                        && MinecraftServer.getServer().registryAccess().lookup(Registries.STRUCTURE).orElseThrow().getValue(Identifier.parse("trial_chambers")) == holder.value()
-                ) { // Trial Chamber
-
-                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(tw, pX, pZ, new TrialChamberPopulator(), TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS);
-
-                    return new Pair<>
-                            (new BlockPos(coords[0], 50, coords[1]), holder);
-                } else if (holder.value().getClass() == BuriedTreasureStructure.class) {
-                    // Buried Treasure
-                    int[] coords = StructureLocator.locateMultiMegaChunkStructure(tw, new MegaChunk(pX, 0, pZ), new BuriedTreasurePopulator(), TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS);
-                    if(coords == null) return null;
-                    return new Pair<>
-                            (new BlockPos(coords[0], 50, coords[1]), holder);
+            else if (!TConfig.c.DEVSTUFF_VANILLA_LOCATE_DISABLE) {
+                if (holder.value().getClass() == OceanMonumentStructure.class) {
+                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(
+                            tw,
+                            pX,
+                            pZ,
+                            new MonumentPopulator(),
+                            TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS
+                    );
+                    return new Pair<>(new BlockPos(coords[0], 50, coords[1]), holder);
+                }
+                else if (holder.value().getClass() == WoodlandMansionStructure.class) {
+                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(
+                            tw,
+                            pX,
+                            pZ,
+                            new MansionPopulator(),
+                            TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS
+                    );
+                    return new Pair<>(new BlockPos(coords[0], 50, coords[1]), holder);
+                }
+                else if (holder.value() instanceof JigsawStructure
+                         && MinecraftServer.getServer()
+                                           .registryAccess()
+                                           .lookup(Registries.STRUCTURE)
+                                           .orElseThrow()
+                                           .getValue(Identifier.parse("trial_chambers")) == holder.value()) {
+                    int[] coords = StructureLocator.locateSingleMegaChunkStructure(
+                            tw,
+                            pX,
+                            pZ,
+                            new TrialChamberPopulator(),
+                            TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS
+                    );
+                    return new Pair<>(new BlockPos(coords[0], 50, coords[1]), holder);
+                }
+                else if (holder.value().getClass() == BuriedTreasureStructure.class) {
+                    int[] coords = StructureLocator.locateMultiMegaChunkStructure(
+                            tw,
+                            new MegaChunk(pX, 0, pZ),
+                            new BuriedTreasurePopulator(),
+                            TConfig.c.DEVSTUFF_VANILLA_LOCATE_TIMEOUTMILLIS
+                    );
+                    if (coords == null) {
+                        return null;
+                    }
+                    return new Pair<>(new BlockPos(coords[0], 50, coords[1]), holder);
                 }
             }
         }
         return null;
     }
 
-    @Override // applyBiomeDecoration
-    public void applyBiomeDecoration(WorldGenLevel worldGenLevel, ChunkAccess ChunkAccess, StructureManager structuremanager) {
-        delegate.applyBiomeDecoration(worldGenLevel, ChunkAccess, structuremanager);
+    @Override
+    public void applyBiomeDecoration(
+            WorldGenLevel worldGenLevel,
+            ChunkAccess chunkAccess,
+            StructureManager structureManager) {
+        // Paper can execute world population on async chunk workers. Iterating the
+        // live CraftWorld populator list can throw ConcurrentModificationException
+        // if another plugin changes it concurrently, which Paper treats as a fatal
+        // chunk-system failure. Run the same population path against a stable copy.
+        applyBukkitPopulators(worldGenLevel, chunkAccess);
 
-        // This triggers structure gen. Needed for VanillaStructurePopulator
-        addVanillaDecorations(worldGenLevel,ChunkAccess, structuremanager);
+        // Required for Terraform's VanillaStructurePopulator integration.
+        addVanillaDecorations(worldGenLevel, chunkAccess, structureManager);
     }
 
-    //This has to be overridden because calling the normal one will make vanilla
-    // generate ores. The giant commented swath of stuff did it
-    @Override
-    public void addVanillaDecorations(WorldGenLevel worldGenLevel, ChunkAccess chunkAccess, StructureManager structuremanager) { // CraftBukkit
-        ChunkPos ChunkPos = chunkAccess.getPos();
-        if (!SharedConstants.debugVoidTerrain(ChunkPos)) {
-            SectionPos sectionPos = SectionPos.of(ChunkPos, worldGenLevel.getMinSectionY());
-            BlockPos BlockPos = sectionPos.origin();
-            Registry<Structure> iregistry = worldGenLevel.registryAccess().lookupOrThrow(Registries.STRUCTURE);
-            Map<Integer, List<Structure>> map = (Map<Integer, List<Structure>>)iregistry.stream().collect(Collectors.groupingBy((structurex) -> {
-                return structurex.step().ordinal();
-            }));
-            //This is private c
-            List<FeatureSorter.StepFeatureData> list = (List<FeatureSorter.StepFeatureData>)this.featuresPerStep.get();
-            WorldgenRandom seededrandom = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
-            long i = seededrandom.setDecorationSeed(worldGenLevel.getSeed(), BlockPos.getX(), BlockPos.getZ());
-            Set<Holder<Biome>> set = new ObjectArraySet<Holder<Biome>>();
-            ChunkPos.rangeClosed(sectionPos.chunk(), 1).forEach((ChunkPos1) -> {
-                ChunkAccess ichunkaccess1 = worldGenLevel.getChunk(ChunkPos1.x(), ChunkPos1.z());
-
-                for (LevelChunkSection chunksection : ichunkaccess1.getSections()) {
-                    PalettedContainerRO<Holder<Biome>> palettedcontainerro = chunksection.getBiomes();
-
-                    Objects.requireNonNull(set);
-                    palettedcontainerro.getAll(set::add);
-                }
-            });
-            set.retainAll(this.biomeSource.possibleBiomes());
-            int j = list.size();
-
-            try {
-                Registry iregistry1 = worldGenLevel.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE);
-                int k = Math.max(GenerationStep.Decoration.values().length, j);
-
-                for(int l = 0; l < k; ++l) {
-                    int i1 = 0;
-                    if (structuremanager.shouldGenerateStructures()) {
-                        for (Structure structure : (List<Structure>) map.getOrDefault(l, Collections.emptyList())) {
-                            seededrandom.setFeatureSeed(i, i1, l);
-                            Supplier<String> supplier = () -> {
-                                Optional optional = iregistry.getResourceKey(structure).map(Object::toString);
-                                Objects.requireNonNull(structure);
-                                return (String)optional.orElseGet(structure::toString);
-                            };
-
-                            try {
-                                worldGenLevel.setCurrentlyGenerating(supplier);
-                                structuremanager.startsForStructure(sectionPos, structure).forEach((structurestart) -> {
-                                    try{
-                                        structurestart.placeInChunk(worldGenLevel, structuremanager, this,
-                                                seededrandom, (BoundingBox) getWriteableArea.method.invoke(null,chunkAccess),
-                                                ChunkPos);
-                                    }catch(IllegalAccessException | InvocationTargetException e){
-                                        CrashReport crashreport = CrashReport.forThrowable(e, "TerraformGenerator");
-                                        throw new ReportedException(crashreport);
-                                    }
-                                });
-                            } catch (Exception var31) {
-                                CrashReport crashreport = CrashReport.forThrowable(var31, "Feature placement");
-                                CrashReportCategory crashreportsystemdetails = crashreport.addCategory("Feature");
-                                Objects.requireNonNull(supplier);
-                                crashreportsystemdetails.setDetail("Description", supplier::get);
-                                throw new ReportedException(crashreport);
-                            }
-                        }
-                    }
-
-                    //This section creates ores. In order to see what the other stuff is,
-                    // refer to previous version's code.
-/*
-                    if (l < j) {
-                        IntSet intset = new IntArraySet();
-                        Iterator var35 = set.iterator();
-
-                        while(var35.hasNext()) {
-                            Holder holder = (Holder)var35.next();
-                            List list1 = ((BiomeSettingsGeneration)this.d.apply(holder)).c();
-                            if (l < list1.size()) {
-                                HolderSet holderset = (HolderSet)list1.get(l);
-                                FeatureSorter.b featuresorter_b = (FeatureSorter.b)list.get(l);
-                                holderset.a().map(Holder::a).forEach((placedfeaturex) -> {
-                                    intset.add(featuresorter_b.b().applyAsInt(placedfeaturex));
-                                });
-                            }
-                        }
-
-                        int j1 = intset.size();
-                        int[] aint = intset.toIntArray();
-                        Arrays.sort(aint);
-                        FeatureSorter.b featuresorter_b1 = (FeatureSorter.b)list.get(l);
-
-                        for(int k1 = 0; k1 < j1; ++k1) {
-                            int l1 = aint[k1];
-                            PlacedFeature placedfeature = (PlacedFeature)featuresorter_b1.a().get(l1);
-                            Supplier supplier1 = () -> {
-                                Optional optional = iregistry1.d(placedfeature).map(Object::toString);
-                                Objects.requireNonNull(placedfeature);
-                                Objects.requireNonNull(placedfeature);
-                                return (String)optional.orElseGet(placedfeature::toString);
-                            };
-                            seededrandom.b(i, l1, l);
-
-                            try {
-                                WorldGenLevel.a(supplier1);
-                                placedfeature.b(WorldGenLevel, this, seededrandom, BlockPos);
-                            } catch (Exception var30) {
-                                CrashReport crashreport1 = CrashReport.a(var30, "Feature placement");
-                                CrashReportCategory crashreportsystemdetails1 = crashreport1.a("Feature");
-                                Objects.requireNonNull(supplier1);
-                                Objects.requireNonNull(supplier1);
-                                crashreportsystemdetails1.a("Description", supplier1::get);
-                                throw new ReportedException(crashreport1);
-                            }
-                        }
-                    }
-*/
-                }
-
-                worldGenLevel.setCurrentlyGenerating((Supplier)null);
-                if (SharedConstants.DEBUG_FEATURE_COUNT) {
-                    FeatureCountTracker.chunkDecorated(worldGenLevel.getLevel());
-                }
-            } catch (Exception var32) {
-                CrashReport crashreport2 = CrashReport.forThrowable(var32, "Biome decoration");
-                crashreport2.addCategory("Generation").setDetail("CenterX", ChunkPos.x()).setDetail("CenterZ", ChunkPos.z()).setDetail("Decoration Seed", i);
-                throw new ReportedException(crashreport2);
-            }
+    private void applyBukkitPopulators(
+            @NotNull WorldGenLevel worldGenLevel,
+            @NotNull ChunkAccess chunkAccess) {
+        org.bukkit.World world = worldGenLevel.getMinecraftWorld().getWorld();
+        org.bukkit.generator.BlockPopulator[] populators =
+                world.getPopulators().toArray(org.bukkit.generator.BlockPopulator[]::new);
+        if (populators.length == 0) {
+            return;
         }
 
+        org.bukkit.craftbukkit.generator.CraftLimitedRegion limitedRegion =
+                new org.bukkit.craftbukkit.generator.CraftLimitedRegion(worldGenLevel, chunkAccess.getPos());
+        int chunkX = chunkAccess.getPos().x();
+        int chunkZ = chunkAccess.getPos().z();
+
+        try {
+            for (org.bukkit.generator.BlockPopulator populator : populators) {
+                if (populator == null) {
+                    continue;
+                }
+
+                WorldgenRandom seededRandom = new WorldgenRandom(new LegacyRandomSource(worldGenLevel.getSeed()));
+                seededRandom.setDecorationSeed(worldGenLevel.getSeed(), chunkX, chunkZ);
+                populator.populate(
+                        world,
+                        new org.bukkit.craftbukkit.util.RandomSourceWrapper.RandomWrapper(seededRandom),
+                        chunkX,
+                        chunkZ,
+                        limitedRegion
+                );
+            }
+            limitedRegion.saveEntities();
+        }
+        finally {
+            limitedRegion.breakLink();
+        }
     }
 
+    @Override
+    public void addVanillaDecorations(
+            WorldGenLevel worldGenLevel,
+            ChunkAccess chunkAccess,
+            StructureManager structureManager) {
+        ChunkPos chunkPos = chunkAccess.getPos();
+        if (SharedConstants.debugVoidTerrain(chunkPos)) {
+            return;
+        }
 
-    @Override // applyCarvers
-    public void applyCarvers(WorldGenRegion worldGenRegion, long seed,
-                  RandomState randomstate, BiomeManager biomemanager,
-                  StructureManager structuremanager, @NotNull ChunkAccess chunkAccess)
-    {
-        // POPULATES BIOMES. IMPORTANT
-        // (net.minecraft.world.level.biome.BiomeResolver,net.minecraft.world.level.biome.Climate$Sampler)
-        // Use twBS as it is the biome provider that actually calculates biomes.
-        // The other one only returns river/plains
-        chunkAccess.fillBiomesFromNoise(this.twBS, null); // This can be null as its passed into twBS
+        SectionPos sectionPos = SectionPos.of(chunkPos, worldGenLevel.getMinSectionY());
+        BlockPos blockPos = sectionPos.origin();
+        Registry<Structure> structureRegistry =
+                worldGenLevel.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        Map<Integer, List<Structure>> structuresByStep = structureRegistry.stream().collect(
+                Collectors.groupingBy(structure -> structure.step().ordinal())
+        );
 
-        // Call delegate applyCarvers to apply spigot ChunkGenerator;
-        delegate.applyCarvers(worldGenRegion, seed, randomstate, biomemanager,structuremanager, chunkAccess);
+        @SuppressWarnings("unchecked")
+        List<FeatureSorter.StepFeatureData> featureSteps =
+                (List<FeatureSorter.StepFeatureData>) featuresPerStep.get();
+        WorldgenRandom seededRandom =
+                new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
+        long decorationSeed = seededRandom.setDecorationSeed(
+                worldGenLevel.getSeed(),
+                blockPos.getX(),
+                blockPos.getZ()
+        );
+
+        try {
+            int stepCount = Math.max(GenerationStep.Decoration.values().length, featureSteps.size());
+            for (int step = 0; step < stepCount; step++) {
+                int featureIndex = 0;
+                if (structureManager.shouldGenerateStructures()) {
+                    for (Structure structure : structuresByStep.getOrDefault(step, Collections.emptyList())) {
+                        seededRandom.setFeatureSeed(decorationSeed, featureIndex, step);
+                        Supplier<String> supplier = () -> structureRegistry.getResourceKey(structure)
+                                                                       .map(Object::toString)
+                                                                       .orElseGet(structure::toString);
+
+                        try {
+                            worldGenLevel.setCurrentlyGenerating(supplier);
+                            structureManager.startsForStructure(sectionPos, structure).forEach(structureStart -> {
+                                try {
+                                    structureStart.placeInChunk(
+                                            worldGenLevel,
+                                            structureManager,
+                                            this,
+                                            seededRandom,
+                                            (BoundingBox) getWriteableArea.method.invoke(null, chunkAccess),
+                                            chunkPos
+                                    );
+                                }
+                                catch (IllegalAccessException | InvocationTargetException e) {
+                                    CrashReport crashReport = CrashReport.forThrowable(e, "TerraformGenerator");
+                                    throw new ReportedException(crashReport);
+                                }
+                            });
+                        }
+                        catch (Exception e) {
+                            CrashReport crashReport = CrashReport.forThrowable(e, "Feature placement");
+                            CrashReportCategory details = crashReport.addCategory("Feature");
+                            details.setDetail("Description", supplier::get);
+                            throw new ReportedException(crashReport);
+                        }
+                        featureIndex++;
+                    }
+                }
+            }
+
+            worldGenLevel.setCurrentlyGenerating(null);
+            if (SharedConstants.DEBUG_FEATURE_COUNT) {
+                FeatureCountTracker.chunkDecorated(worldGenLevel.getLevel());
+            }
+        }
+        catch (Exception e) {
+            CrashReport crashReport = CrashReport.forThrowable(e, "Biome decoration");
+            crashReport.addCategory("Generation")
+                       .setDetail("CenterX", chunkPos.x())
+                       .setDetail("CenterZ", chunkPos.z())
+                       .setDetail("Decoration Seed", decorationSeed);
+            throw new ReportedException(crashReport);
+        }
     }
 
-    @Override // getGenDepth
+    @Override
+    public void applyCarvers(
+            WorldGenRegion worldGenRegion,
+            long seed,
+            RandomState randomState,
+            BiomeManager biomeManager,
+            StructureManager structureManager,
+            @NotNull ChunkAccess chunkAccess) {
+        // Terraform calculates the actual biome layout here.
+        chunkAccess.fillBiomesFromNoise(this.twBS, null);
+        delegate.applyCarvers(worldGenRegion, seed, randomState, biomeManager, structureManager, chunkAccess);
+    }
+
+    @Override
     public int getGenDepth() {
         return delegate.getGenDepth();
     }
 
-    /**
-     * Overridden to allow VanillaStructurePopulator to work.
-     * The code comes from createStructures, but with a lot of the in-built
-     * checks cut out and replaced with TFG code.
-     */
     @Override
-    public void createStructures(RegistryAccess registryAccess, @NotNull ChunkGeneratorStructureState chunkgeneratorstructurestate, StructureManager structuremanager, @NotNull ChunkAccess ChunkAccess, StructureTemplateManager structuretemplatemanager, ResourceKey<Level> resourcekey) {
-        ChunkPos ChunkPos = ChunkAccess.getPos(); // getPos
-        SectionPos sectionPos = SectionPos.bottomOf(ChunkAccess); // bottomOf
-        RandomState randomstate = chunkgeneratorstructurestate.randomState(); // randomState
-        MegaChunk mc = new MegaChunk(ChunkPos.x(), ChunkPos.z());
-        SingleMegaChunkStructurePopulator[] spops = StructureRegistry.getLargeStructureForMegaChunk(tw, mc);
-        CoordPair centerCoords = mc.getCenterBiomeSectionChunkCoords();
-        if(spops == null) return;
-        for(SingleMegaChunkStructurePopulator pop:spops)
-        {
-            if(!(pop instanceof VanillaStructurePopulator vpop)) continue;
-            // possibleStructureSets
-            possibleStructureSets
-                .stream().filter((resourceLoc)->{
-                    return vpop.structureRegistryKey.equals(resourceLoc.getPath()); // Identifier.getPath()
-                })
-                //Registries.STRUCTURE_SET
-                .map((resourceLoc)-> MinecraftServer.getServer().registryAccess().lookup(Registries.STRUCTURE_SET).orElseThrow().getValue(resourceLoc))
-                .forEach((structureSet) -> {
-                StructurePlacement structureplacement = structureSet.placement(); // placement()
-                List<StructureSet.StructureSelectionEntry> list = structureSet.structures(); // structures()
+    public void createStructures(
+            RegistryAccess registryAccess,
+            @NotNull ChunkGeneratorStructureState structureState,
+            StructureManager structureManager,
+            @NotNull ChunkAccess chunkAccess,
+            StructureTemplateManager structureTemplateManager,
+            ResourceKey<Level> resourceKey) {
+        ChunkPos chunkPos = chunkAccess.getPos();
+        SectionPos sectionPos = SectionPos.bottomOf(chunkAccess);
+        RandomState randomState = structureState.randomState();
+        MegaChunk megaChunk = new MegaChunk(chunkPos.x(), chunkPos.z());
+        SingleMegaChunkStructurePopulator[] populators =
+                StructureRegistry.getLargeStructureForMegaChunk(tw, megaChunk);
+        CoordPair centerCoords = megaChunk.getCenterBiomeSectionChunkCoords();
+        if (populators == null) {
+            return;
+        }
 
-                // This will be true depending on the structure manager
-                if (centerCoords.x() == ChunkPos.x()
-                        && centerCoords.z() == ChunkPos.z()) {
+        for (SingleMegaChunkStructurePopulator populator : populators) {
+            if (!(populator instanceof VanillaStructurePopulator vanillaPopulator)) {
+                continue;
+            }
 
-                    // d() -> getLevelSeed()
-                    try{
-                        Object retVal = tryGenerateStructure.method.invoke(this, list.getFirst(), structuremanager, registryAccess, randomstate,
-                                structuretemplatemanager, chunkgeneratorstructurestate.getLevelSeed(),
-                                ChunkAccess, ChunkPos, sectionPos, resourcekey);
-                        TerraformGeneratorPlugin.logger.info(ChunkPos.x() + "," + ChunkPos.z() + " will spawn a vanilla structure, with tryGenerateStructure == " + retVal);
-                    }
-                    catch(Throwable t)
-                    {
-                        TerraformGeneratorPlugin.logger.info(ChunkPos.x() + "," + ChunkPos.z() + " Failed to generate a vanilla structure");
-                        TerraformGeneratorPlugin.logger.stackTrace(t);
-                    }
-                }
-            });
+            possibleStructureSets.stream()
+                    .filter(resourceLocation -> vanillaPopulator.structureRegistryKey.equals(resourceLocation.getPath()))
+                    .map(resourceLocation -> MinecraftServer.getServer()
+                                                    .registryAccess()
+                                                    .lookup(Registries.STRUCTURE_SET)
+                                                    .orElseThrow()
+                                                    .getValue(resourceLocation))
+                    .forEach(structureSet -> {
+                        List<StructureSet.StructureSelectionEntry> structures = structureSet.structures();
+                        if (centerCoords.x() == chunkPos.x() && centerCoords.z() == chunkPos.z()) {
+                            try {
+                                Object result = tryGenerateStructure.method.invoke(
+                                        this,
+                                        structures.getFirst(),
+                                        structureManager,
+                                        registryAccess,
+                                        randomState,
+                                        structureTemplateManager,
+                                        structureState.getLevelSeed(),
+                                        chunkAccess,
+                                        chunkPos,
+                                        sectionPos,
+                                        resourceKey
+                                );
+                                TerraformGeneratorPlugin.logger.info(
+                                        chunkPos.x() + "," + chunkPos.z()
+                                        + " will spawn a vanilla structure, with tryGenerateStructure == " + result
+                                );
+                            }
+                            catch (Throwable throwable) {
+                                TerraformGeneratorPlugin.logger.info(
+                                        chunkPos.x() + "," + chunkPos.z()
+                                        + " Failed to generate a vanilla structure"
+                                );
+                                TerraformGeneratorPlugin.logger.stackTrace(throwable);
+                            }
+                        }
+                    });
         }
     }
-    @Override // createReferences. Structure related
-    public void createReferences(WorldGenLevel gas,StructureManager manager,ChunkAccess ica)
-    {
-        delegate.createReferences(gas, manager, ica);
+
+    @Override
+    public void createReferences(WorldGenLevel worldGenLevel, StructureManager manager, ChunkAccess chunkAccess) {
+        delegate.createReferences(worldGenLevel, manager, chunkAccess);
     }
 
-    @Override // getSpawnHeight
-    public int getSpawnHeight(LevelHeightAccessor levelheightaccessor) {
+    @Override
+    public int getSpawnHeight(LevelHeightAccessor levelHeightAccessor) {
         return 64;
     }
 
-    @Override // fillFromNoise
-    public CompletableFuture<ChunkAccess> fillFromNoise(Blender blender,
-                                             RandomState randomstate, StructureManager structuremanager,
-                                             ChunkAccess ChunkAccess) {
-        return delegate.fillFromNoise(blender,
-                randomstate, structuremanager,
-                ChunkAccess);
+    @Override
+    public CompletableFuture<ChunkAccess> fillFromNoise(
+            Blender blender,
+            RandomState randomState,
+            StructureManager structureManager,
+            ChunkAccess chunkAccess) {
+        return delegate.fillFromNoise(blender, randomState, structureManager, chunkAccess);
     }
 
-    @Override // buildSurface. Used to be buildBase
-    public void buildSurface(WorldGenRegion worldGenRegion, StructureManager structuremanager, RandomState randomstate, ChunkAccess ChunkAccess)
-    {
-        delegate.buildSurface(worldGenRegion, structuremanager, randomstate, ChunkAccess);
+    @Override
+    public void buildSurface(
+            WorldGenRegion worldGenRegion,
+            StructureManager structureManager,
+            RandomState randomState,
+            ChunkAccess chunkAccess) {
+        delegate.buildSurface(worldGenRegion, structureManager, randomState, chunkAccess);
     }
 
-
-    @Override // getBaseColumn
-    public NoiseColumn getBaseColumn(int i, int j, LevelHeightAccessor levelheightaccessor, RandomState randomstate) {
-        return this.delegate.getBaseColumn(i,j,levelheightaccessor,randomstate);
+    @Override
+    public NoiseColumn getBaseColumn(
+            int x,
+            int z,
+            LevelHeightAccessor levelHeightAccessor,
+            RandomState randomState) {
+        return delegate.getBaseColumn(x, z, levelHeightAccessor, randomState);
     }
 
-    // spawnOriginalMobs
-    public void spawnOriginalMobs(WorldGenRegion WorldGenRegion) {
-        this.delegate.spawnOriginalMobs(WorldGenRegion);
+    @Override
+    public void spawnOriginalMobs(WorldGenRegion worldGenRegion) {
+        delegate.spawnOriginalMobs(worldGenRegion);
     }
 
-
-    // getSeaLevel
     @Override
     public int getSeaLevel() {
         return TerraformGenerator.seaLevel;
     }
 
-    // getMinY
     @Override
     public int getMinY() {
-        return this.delegate.getMinY();
+        return delegate.getMinY();
     }
 
-    @Override // getFirstFreeHeight
-    public int getFirstFreeHeight(int i, int j, Heightmap.Types heightmap_type,
-                 LevelHeightAccessor levelheightaccessor, RandomState randomstate) {
-        return this.getFirstFreeHeight(i, j, heightmap_type, levelheightaccessor, randomstate);
+    @Override
+    public int getFirstFreeHeight(
+            int x,
+            int z,
+            Heightmap.Types heightmapType,
+            LevelHeightAccessor levelHeightAccessor,
+            RandomState randomState) {
+        return delegate.getFirstFreeHeight(x, z, heightmapType, levelHeightAccessor, randomState);
     }
 
-
-    @Override // getFirstOccupiedHeight
-    public int getFirstOccupiedHeight(int i, int j, Heightmap.Types heightmap_type,
-                 LevelHeightAccessor levelheightaccessor, RandomState randomstate) {
-        return this.getFirstOccupiedHeight(i, j, heightmap_type, levelheightaccessor, randomstate) - 1;
+    @Override
+    public int getFirstOccupiedHeight(
+            int x,
+            int z,
+            Heightmap.Types heightmapType,
+            LevelHeightAccessor levelHeightAccessor,
+            RandomState randomState) {
+        return delegate.getFirstOccupiedHeight(x, z, heightmapType, levelHeightAccessor, randomState) - 1;
     }
 
-    @Override // getBaseHeight
-    public int getBaseHeight(int i, int j, Heightmap.Types heightmap_type, LevelHeightAccessor levelheightaccessor, RandomState randomstate) {
-        // return delegate.a(x, z, var2, var3);
+    @Override
+    public int getBaseHeight(
+            int x,
+            int z,
+            Heightmap.Types heightmapType,
+            LevelHeightAccessor levelHeightAccessor,
+            RandomState randomState) {
+        // Preserve existing behavior for compatibility with Terraform's Bukkit generator.
         return 100;
-        // return org.terraform.coregen.HeightMap.getBlockHeight(tw, x, z);
     }
 
-    // private static boolean biomeDebug = false;
-
-
-    @Override // addDebugScreenInfo
-    public void addDebugScreenInfo(List<String> list, RandomState randomstate, BlockPos BlockPos) {
-
+    @Override
+    public void addDebugScreenInfo(List<String> list, RandomState randomState, BlockPos blockPos) {
     }
-
 }

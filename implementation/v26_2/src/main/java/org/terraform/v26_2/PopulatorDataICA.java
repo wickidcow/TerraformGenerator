@@ -272,7 +272,7 @@ public class PopulatorDataICA extends PopulatorDataICABiomeWriterAbstract {
 
     @Override
     public boolean isInBound(int x, int y, int z) {
-        return x<<4 == chunkX && z<<4 == chunkZ;
+        return x >> 4 == chunkX && z >> 4 == chunkZ;
     }
 
 }

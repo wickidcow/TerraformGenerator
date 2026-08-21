@@ -41,7 +41,6 @@ public enum Version {
         this.priority = priority;
     }
 
-    //Man what the fuck is this now
     public String getSchematicHeader(){
         return this.toString().replace("v1_","").replace("_",".");
     }
@@ -54,15 +53,13 @@ public enum Version {
         return priority >= other.priority;
     }
 
-    //Cannot use getMinecraftVersion, because it only exists in paper, not spigot
-    //Spigot's getBukkitVersion returns getMinecraftVersion, but paper's adds some build versioning to it
-    public static final String VERSION_STRING = Bukkit.getServer().getBukkitVersion().split(".build")[0].split("-")[0];
+    public static final String VERSION_STRING = Bukkit.getServer().getMinecraftVersion();
     public static final Version VERSION = toVersion(VERSION_STRING);
 
     /**
-     * @param version a string like "1.20.4"
-     * @return one of the enums. If this fails, failsafe is the
-     * highest priority version.
+     * @param version a Paper Minecraft version such as "26.2"
+     * @return the matching version adapter. Unknown future versions fall back
+     * to the highest adapter bundled by this build.
      */
     private static Version toVersion(@NotNull String version) {
         try{
@@ -83,26 +80,7 @@ public enum Version {
             InstantiationException,
             IllegalAccessException
     {
-
-        String spigotAppend;
-        //https://www.spigotmc.org/threads/how-do-i-detect-if-a-server-is-running-paper.499064/
-        try {
-            // Any other works, just the shortest I could find.
-            Class.forName("com.destroystokyo.paper.ParticleBuilder");
-            spigotAppend = "";
-        } catch (ClassNotFoundException ignored) {
-            TerraformGeneratorPlugin.logger.info("Spigot detected");
-            spigotAppend = "spigot.";
-            try{
-                Class.forName("org.terraform." + spigotAppend + VERSION.getPackName() + ".NMSInjector")
-                     .getDeclaredConstructor()
-                     .newInstance();
-            }catch(ClassNotFoundException ignoreAgain){
-                TerraformGeneratorPlugin.logger.stdout("There was no spigot package for this version. This is fine if you are BELOW 1.21.9.");
-                spigotAppend = "";
-            }
-        }
-        return (NMSInjectorAbstract) Class.forName("org.terraform." + spigotAppend + VERSION.getPackName() + ".NMSInjector")
+        return (NMSInjectorAbstract) Class.forName("org.terraform." + VERSION.getPackName() + ".NMSInjector")
                                                   .getDeclaredConstructor()
                                                   .newInstance();
     }

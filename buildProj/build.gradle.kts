@@ -10,58 +10,26 @@ buildscript {
 
 dependencies {
     implementation(project(":common"))
-    implementation(project(":implementation:v1_18_R2"))
-    implementation(project(":implementation:v1_19_R3"))
-    implementation(project(":implementation:v1_20_R1"))
-    implementation(project(":implementation:v1_20_R2"))
-    implementation(project(":implementation:v1_20_R3"))
-    implementation(project(":implementation:v1_20_R4"))
-    implementation(project(":implementation:v1_21_R1"))
-    implementation(project(":implementation:v1_21_R2"))
-    implementation(project(":implementation:v1_21_R3"))
-    implementation(project(":implementation:v1_21_R4"))
-    implementation(project(":implementation:v1_21_R5"))
-    implementation(project(":implementation:v1_21_R6"))
-    implementation(project(":implementation:v1_21_R7"))
-    implementation(project(":implementation:v26_1"))
     implementation(project(":implementation:v26_2"))
     implementation("com.github.AvarionMC:yaml:1.1.7")
-	
-	if(project.hasProperty("includeSpigot")){
-		//Also change the one in shadowJar. Remember to have --remapped in Buildtools.
-		implementation(project(":implementation:Spigotv1_21_R6"))
-		implementation(project(":implementation:Spigotv1_21_R7"))
-        implementation(project(":implementation:Spigotv26_1"))
-        implementation(project(":implementation:Spigotv26_2"))
-	}
 }
 
 tasks.shadowJar {
-    //This will break all versions before 1.21.9.
-    // Can't do much about that.
     manifest {
         attributes["paperweight-mappings-namespace"] = "mojang"
     }
 
-	//Make the spigot build shadow itself
-	if(project.hasProperty("includeSpigot")){
-		dependsOn(":implementation:Spigotv1_21_R6:remap")
-		dependsOn(":implementation:Spigotv1_21_R7:remap")
-	}
-	
     doFirst {
         val yamlFile = file("${rootProject.projectDir}/common/src/main/resources/plugin.yml")
         val yaml = org.yaml.snakeyaml.Yaml()
         val config = yaml.load<Map<String, Any>>(yamlFile.inputStream())
 
-        // Set the archive name and version based on the plugin.yml file
         archiveBaseName.set(config["name"].toString())
         archiveVersion.set(config["version"].toString())
-        archiveClassifier.set("") // Don't add the '-all' postfix.
+        archiveClassifier.set("")
     }
 
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-
     relocate("io.papermc.lib", "org.terraform.lib")
 }
 
